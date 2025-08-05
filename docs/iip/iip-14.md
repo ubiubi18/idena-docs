@@ -20,7 +20,7 @@ This proposal introduces a new protocol rule: **Any identity creating two or mor
 
 ## Motivation
 
-The share of reported bad flips in Idena ceremonies has increased significantly over the past year, exceeding 16% of all flips per epoch. Data shows only 3–5% of reported flips are likely published by honest users (one-off, unintentional errors). The majority are produced by identities publishing multiple bad flips in one session – suggesting intent to abuse protocol rules. These actors retain identity and mining rights, harming the protocol and the experience of honest users. The current penalty (loss of session rewards) is insufficient and unfair, especially when compared to accidental single mistakes. More bad flips also increase the likelihood that Idena will fail to impress first-time users at first glance. Eliminating almost all bad flips will undoubtedly improve Idena’s reputation and open up new perspectives for the network.
+The share of reported bad flips in Idena ceremonies has increased significantly over the past year, exceeding 16% of all flips per epoch. Data shows only 3-5% of reported flips are likely published by honest users (one-off, unintentional errors). The majority are produced by identities publishing multiple bad flips in one session - suggesting intent to abuse protocol rules. These actors retain identity and mining rights, harming the protocol and the experience of honest users. The current penalty (loss of session rewards) is insufficient and unfair, especially when compared to accidental single mistakes. More bad flips also increase the likelihood that Idena will fail to impress first-time users at first glance. Eliminating almost all bad flips will undoubtedly improve Idena’s reputation and open up new perspectives for the network.
 
 **Strengthening the penalty for repeated bad flips will discourage abuse, improve overall flip quality, and protect protocol security.**
 
@@ -48,7 +48,7 @@ Analysis of Idena validation data (see below) shows **most bad flips come from a
 
 Alternative ideas (lower penalties, weighted reporting, penalties only for addresses with 3 reported flips per epoch) were considered in [community discussion](https://github.com/idena-network/idena-docs/discussions/187). But the data reflect a different reality and it seems as less strict rules would not prevent serial abuse or would unfairly punish honest users. **This approach targets only repeat offenders, minimizing collateral damage.**
 
-There are good reasons to assume that identities with more than one reported flip per epoch do so intentionally, while single reported flips are most often honest mistakes — which are rare, as flip creation takes considerable effort.
+There are good reasons to assume that identities with more than one reported flip per epoch do so intentionally, while single reported flips are most often honest mistakes - which are rare, as flip creation takes considerable effort.
 
 ## Data Illustration
 
@@ -58,7 +58,7 @@ The chart below summarizes the historic share of reported bad flips in Idena cer
 
 *See repo for code and raw data: https://github.com/ubiubi18/wrongwordsTRUE/tree/main*
 
-- The **red line** shows the share of flips by addresses with multiple reports per epoch — the key target of this proposal.
+- The **red line** shows the share of flips by addresses with multiple reports per epoch - the key target of this proposal.
 - The **blue line** represents the share by addresses with only one report (mostly honest mistakes).
 - **Gray bars**: total flips per epoch; **red bars**: flips reported as bad.
 
