@@ -6,107 +6,151 @@ sidebar_label: IIP-14 Repeated reported-flip penalty
 
 ## IIP-14: Repeated reported-flip penalty
 
-`Author`: ubiubi18
+`iip`: 14
 
-`Description`: Apply an identity-state penalty when two or more of an identity's flips are reported in one validation ceremony.
+`title`: Repeated reported-flip penalty
 
-`Status`: Draft
+`description`: Penalize an identity when at least two of its flips receive the final reported grade in one validation ceremony.
 
-`Type`: Standard
+`author`: ubiubi18
 
-`Created`: 2025-08-05
+`discussions-to`: https://github.com/idena-network/idena-docs/discussions/187
 
-`Discussion`: https://github.com/idena-network/idena-docs/discussions/187
+`status`: Draft
+
+`type`: Standard
+
+`created`: 2025-08-05
 
 `Translations`:
 
 ## Abstract
 
-This proposal adds an identity-state penalty for publishing at least two flips that receive the protocol's final `GradeReported` grade during the same validation ceremony. An identity whose pre-validation state is `Newbie` is killed. An identity whose pre-validation state is `Verified` or `Human` is suspended, unless the existing validation rules already kill it. A single reported flip does not trigger the new state transition, but all existing penalties continue to apply.
+This proposal adds an identity-state penalty for an author with at least two flip submission slots whose final consensus grade is `GradeReported` in the same validation ceremony. If the ceremony succeeds, an identity whose pre-validation state is `Newbie` is killed. An identity whose pre-validation state is `Verified` or `Human` is suspended unless the existing validation rules already kill it. A single reported flip does not trigger the new state transition, but all existing penalties continue to apply.
+
+The ordinary consequences of the resulting status still apply. Under the current consensus rules, killing a `Newbie` burns its full stake and removes its validation and invitation relationships. This proposal preserves the existing ceremony-wide failure guard: if no identity would remain `Newbie` or better, the ceremony fails and none of its calculated identity-state transitions are applied.
 
 ## Motivation
 
 The protocol already withholds validation rewards from identities whose flips are reported, but that penalty may not deter identities that repeatedly publish reportable flips while retaining a validated identity. Repeated reported flips also consume reviewers' attention and reduce the quality of the validation experience.
 
-Exploratory analysis linked below indicates that, in the sampled epochs, a substantial share of reported flips was concentrated among identities with more than one reported flip in the same epoch. The analysis does not establish the author's intent and does not measure the false-positive rate. This proposal therefore uses the protocol's existing report qualification rather than introducing a subjective definition of flip quality, and limits the new penalty to repeated reports in one ceremony.
+Author-provided exploratory analysis suggests that some sampled epochs contain identities with multiple reported flips. The available artifacts do not include the complete raw dataset or the plotting program, do not establish author intent, and contain a noted epoch-label offset. They are therefore insufficient to justify activation by themselves. This proposal defines the consensus behavior while requiring a reproducible impact analysis before activation.
 
 ## Specification
 
 ### Definitions
 
-- A **reported flip** is a distinct flip whose final qualification has `grade == GradeReported` under the active consensus rules. Reports discarded by the existing reporter filters do not count. A flip with `QualifiedByNone` status does not count unless its final grade is also `GradeReported`.
-- `reportedFlips(author)` is the number of reported flips created by `author` in the validation ceremony being finalized.
-- **Pre-validation state** is the identity state at the start of that ceremony, before ordinary validation transitions are calculated.
-- **Base next state** is the next identity state produced by all consensus rules that apply without this proposal.
+- An **authored flip slot** is one position in the ceremony's canonical flip list together with the identity that submitted that position. It is identified by its canonical slot, not only by its CID.
+- A **reported flip** is an authored flip slot whose immutable final `FlipQualification.grade`, produced by the existing qualification algorithm, is `GradeReported`.
+- `reportedFlips(author)` is the number of that author's reported flip slots in the ceremony being finalized.
+- **Pre-validation state** is the identity state used as the input to the ordinary validation transition.
+- **Base next state** is the next identity state produced by every active consensus rule except this proposal.
+
+### Counting reported flips
+
+An implementation MUST derive `reportedFlips(author)` from the final `FlipQualification` array after the existing grading and invalid-grader filters have run. It MUST increment a separate per-author counter only when a slot has `grade == GradeReported`.
+
+The count MUST NOT be inferred from `BadAuthors`, `AuthorResults.HasOneReportedFlip`, a reporter-reward map, raw report transactions, or an API field. Those representations either collapse multiple reports, include non-reported `QualifiedByNone` results, or are pruned for reward eligibility after flip grades are final. Removing a reporter from a reward map after qualification MUST NOT change the count.
+
+The implementation MUST preserve the author and qualification of every canonical slot when two or more authors submit the same CID. Cross-author duplicate CIDs MUST NOT alias to one author or one slot during lottery assignment, qualification, or counting. The feature MUST remain disabled until the implementation handles this case deterministically.
 
 ### State transition
 
-For every identity, an implementation MUST first calculate the base next state. It MUST then apply the following rule using the identity's pre-validation state:
+For every identity, an implementation MUST first calculate the base next state. It MUST then calculate the IIP-adjusted next state using the identity's pre-validation state:
 
-| Reported flips | Pre-validation state | Final next state |
+| Reported flips | Pre-validation state | IIP-adjusted next state |
 | --- | --- | --- |
 | 0 or 1 | Any | Base next state |
 | 2 or more | `Newbie` | `Killed` |
 | 2 or more | `Verified` or `Human` | `Suspended`, unless the base next state is `Killed`; `Killed` MUST be preserved |
 | 2 or more | Any other state | Base next state |
 
-The new rule MUST NOT replace an outcome with a less severe state. In particular, a `Verified` identity that fails the ordinary validation rules and would be killed remains `Killed`; it is not changed to `Suspended`.
+The new rule MUST NOT replace an outcome with a less severe state. In particular, a `Verified` identity that would ordinarily be killed remains `Killed`; it is not changed to `Suspended`.
 
-The final next state MUST be used consistently by all subsequent ceremony-finalization logic, including identity birthday calculation, invitation accounting, validation result construction, and reward processing.
+Only the next state is adjusted. The pre-validation state used by existing stake-burning and other transition logic MUST remain unchanged. The adjusted next state MUST be calculated immediately after the base next state and before identity birthday calculation, invitation accounting, validation result construction, reporter reward eligibility, epoch-cache construction, and the count of identities remaining `Newbie` or better.
 
-### Existing penalties
+### Ceremony-wide failure precedence
 
-This proposal does not change how a reported flip is qualified, how reporters are filtered or rewarded, or how a bad author affects validation and invitation rewards. Those existing rules apply in addition to the state transition above. An identity with exactly one reported flip receives no new state penalty.
+The existing ceremony-wide failure guard takes precedence over the table above. After all IIP-adjusted next states are calculated, if no identity would remain `Newbie` or better, the ceremony is failed using the existing consensus behavior. None of the calculated state transitions, including this proposal's penalties, are applied for that ceremony. This proposal does not otherwise change failed-ceremony processing.
 
-### Activation
+### Status effects and existing penalties
 
-This rule changes consensus and MUST be disabled before activation. It MUST be enabled by a future consensus upgrade accepted through the existing hard-fork process. The implementation will assign the consensus version and activation window; this proposal does not reserve an application release number, consensus version, fork number, block, or epoch.
+This proposal reuses the existing `Killed` and `Suspended` status semantics; it does not introduce separate balance or cleanup rules. Under the consensus rules current when this IIP was drafted:
+
+- A `Newbie` changed to `Killed` has 100% of its stake burned and its validation and invitation relationships removed.
+- A `Verified` or `Human` identity changed to `Suspended` keeps its stake but is no longer validated until it passes a later validation under the existing recovery rules.
+
+This proposal does not change how a flip receives `GradeReported`, how reporters are filtered or rewarded, or how a bad author affects validation and invitation rewards. Those rules apply in addition to the state transition above. An identity with exactly one reported flip receives no new state penalty.
+
+### Activation requirements
+
+This rule changes consensus and MUST be disabled before activation. It MUST be enabled only by a future consensus upgrade accepted through the existing hard-fork process. This proposal does not reserve an application release number, consensus version, fork number, block, or epoch.
+
+Activation MUST NOT be scheduled until all of the following are published and reviewed:
+
+1. A production implementation and the integration tests listed in the Reference Implementation section.
+2. A pinned, reproducible historical impact report containing the collector, aggregation program, immutable inputs, software versions, and exact epoch mapping. It MUST report affected identities by epoch, pre-validation state, and base next state; expected stake burned; expected suspensions; invitation effects; remaining validator and shard sizes; and any ceremony that would hit the global failure guard.
+3. A threat analysis covering report-committee manipulation and its downstream stake and invitation consequences, cross-author duplicate CIDs, and distribution of flips across multiple identities.
+4. An activation window and upgrade instructions that give node operators time to upgrade before the first ceremony governed by the new rule.
+
+Because malicious intent is not observable from `GradeReported` alone, any claimed false-positive classification MUST include a documented labeling method and its limitations. The measurable historical impact data above is required even if no intent labels are used.
 
 ## Rationale
 
-The threshold is an absolute count of two rather than a fraction of the author's required flips. This is simple to evaluate and targets repeated failures in one ceremony. A proportional rule such as two of three or three of five was considered in the discussion, but it would leave some identities unpenalized after publishing two reported flips and would add status-dependent thresholds.
+The threshold is an absolute count of two rather than a fraction of the author's required flips. This is simple to evaluate and targets repeated reports in one ceremony. A proportional rule such as two of three or three of five was considered in the discussion, but it would leave some identities unpenalized after publishing two reported flips and would add denominator-dependent thresholds.
 
-The rule uses the pre-validation state so that an identity cannot escape the intended result through an ordinary transition in the same ceremony. It also preserves an ordinary `Killed` result so the new rule can never reduce an existing penalty.
+The discussion also considered excluding `Newbie` identities, using a multi-epoch ratio of reported to created flips, and downgrading a `Human` identity to `Verified` instead of suspending it. Excluding `Newbie` identities would avoid an irreversible novice penalty but would also leave rotating new identities outside the deterrent. A multi-epoch ratio may reduce sensitivity to one ceremony, but it requires new persistent consensus state and delays the response. A `Human`-to-`Verified` downgrade preserves validated status and therefore does not meet this draft's goal of temporarily removing repeat offenders from the validator set. These are material governance choices rather than implementation details; they must be reconsidered using the required impact report before this IIP advances from Draft if the measured harm is disproportionate.
+
+The rule uses the pre-validation state so an identity cannot escape the intended result through an ordinary transition in the same ceremony. It preserves an ordinary `Killed` result so the new rule cannot reduce an existing penalty.
 
 The term `GradeReported` ties the proposal to a value already calculated by consensus. Phrases such as "bad flip," "low effort," or "malicious flip" are motivations, not additional consensus criteria.
 
-## Data illustration
+The current global failure guard is preserved because changing the network-wide definition of a failed ceremony would be a separate consensus change. Its fail-open effect for this penalty is documented below and must be included in activation analysis.
 
-The following chart was generated from Idena API data for the sampled epochs. The red line is the share of all flips attributed to identities with multiple `wrongWords` flips in an epoch; the blue line is the share attributed to identities with exactly one. The bars show total and reported flip volumes.
+## Evidence status
 
-![Shares of reported flips with volume context per epoch](https://raw.githubusercontent.com/ubiubi18/wrongwordsTRUE/f1e2c36f74f087ceb6d0ecba62625a6b14515017/output%282%29.png)
+The [exploratory collection scripts and sample artifacts](https://github.com/ubiubi18/wrongwordsTRUE/tree/f1e2c36f74f087ceb6d0ecba62625a6b14515017) query historical Idena API data, but the repository does not contain the complete raw inputs or the program that produced its percentage chart. A sample artifact also notes an epoch-label offset. The chart is therefore omitted from this IIP and the repository is cited only as non-normative background. It does not satisfy the activation requirements above.
 
-The [analysis scripts and methodology](https://github.com/ubiubi18/wrongwordsTRUE/tree/f1e2c36f74f087ceb6d0ecba62625a6b14515017) are non-consensus research inputs. The repository does not include the complete raw dataset used for the chart, so the chart should not be treated as independently reproducible evidence or as part of the normative specification.
+## Backwards Compatibility
 
-## Backward compatibility
+This change is not backwards compatible. Once activated, an old node can calculate a different post-validation identity state and state root in a ceremony where the rule triggers. Nodes must upgrade before the activation window to remain on the canonical chain.
 
-This change is not backward compatible. Once activated, an old node can calculate a different post-validation identity state and therefore a different state root. Nodes must upgrade before the activation window to remain on the canonical chain.
-
-## Reference implementation
+## Reference Implementation
 
 There is no production reference implementation at the time of publication.
 
 An implementation is expected to:
 
-1. Count final `GradeReported` qualifications per author while analyzing flips.
-2. Carry the repeated-report result into ceremony finalization without changing existing bad-author reward behavior.
-3. Apply the state transition after calculating the base next state and before any consumer records or uses the final next state.
-4. Gate the behavior behind the consensus upgrade that activates this proposal.
-5. Add integration-level tests for every table row above, including a `Verified` identity whose base next state is already `Killed`, exactly one reported flip, and a `QualifiedByNone` flip that is not `GradeReported`.
+1. Create a separate exact reported-flip counter keyed by author from the final qualification array. Existing bad-author flags and reporter-reward structures MUST retain their current meanings.
+2. Preserve a stable per-slot author and qualification throughout lottery assignment and analysis, including cross-author duplicate CIDs.
+3. Apply the adjusted state immediately after the ordinary next-state calculation and before every downstream consumer, while preserving the original pre-validation state.
+4. Include the adjusted state in the count used by the existing ceremony-wide failure guard and preserve that guard's current behavior.
+5. Gate all new behavior behind the consensus upgrade that activates this proposal.
 
-The relevant current node paths are [flip qualification](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/qualification.go#L382-L436), [author analysis](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/ceremony.go#L1340-L1412), and [identity-state finalization](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/ceremony.go#L1135-L1174).
+Integration tests MUST cover:
 
-## Security considerations
+- Every row in the transition table, including a `Verified` identity whose base next state is already `Killed`.
+- Zero, one, and two final `GradeReported` results; `QualifiedByNone` without `GradeReported`; reports removed by invalid-grader filters; and reporters removed later only from reward eligibility.
+- Identical CIDs submitted by different authors without author or slot aliasing.
+- Full Newbie stake burning, identity and invitation-link cleanup, suspension without stake burning, validation results, and epoch-cache replay.
+- A ceremony where every otherwise surviving identity is penalized and the global failure guard discards all transitions, plus a ceremony with one unpenalized survivor where the penalties are applied.
+- Identical ceremony input immediately before and after activation, with the feature disabled and enabled respectively.
 
-- **False positives:** `GradeReported` is a committee-derived result, not proof of malicious intent. Honest authors can receive two reported grades and would be penalized. Before activation, reviewers should measure the historical false-positive rate and publish reproducible data.
-- **Coordinated reporting:** An attacker able to influence enough of a flip's report committee may cause the flip to receive `GradeReported`. This proposal increases the consequence of such influence but does not change the existing report threshold or committee selection.
-- **Evasion:** An attacker can avoid the new state penalty by limiting each identity to one reported flip per ceremony or distributing flips across identities. Existing reward penalties still apply, but this proposal does not eliminate that strategy.
-- **Network participation:** Suspending or killing repeat offenders can reduce the active validator set, including honest participants caught by false positives. Activation analysis should quantify the expected effect on validator and shard sizes.
-- **Determinism:** Nodes must count the same final flip qualifications and apply the transition at the same point in ceremony finalization. Counting raw report transactions, API fields, or reports discarded by existing filters would be consensus-breaking.
-- **Penalty monotonicity:** The new transition must never turn an existing `Killed` outcome into `Suspended` or otherwise improve an identity's base next state.
+The relevant current node paths are [flip qualification](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/qualification.go#L117-L218), [author analysis](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/ceremony.go#L1340-L1412), [identity-state finalization](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/ceremony.go#L1135-L1207), and [state application](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/ceremony.go#L947-L1027).
+
+## Security Considerations
+
+- **Irreversible false positives:** `GradeReported` is a committee-derived result, not proof of malicious intent. Two reported grades kill a `Newbie` and currently burn its full stake. The reproducible impact report and labeling limitations required above are safeguards against adopting the rule without quantifying who and how much it affects.
+- **Coordinated reporting:** An attacker able to influence enough of a flip's report committee may cause `GradeReported`. This proposal increases the consequence from lost rewards to suspension or full Newbie stake loss and can also affect invitation accounting. It does not change report thresholds or committee selection.
+- **Duplicate-CID aliasing:** The current node uses CID-keyed lookup in parts of author and lottery processing. Cross-author duplicate CIDs can alias slots and distort attribution or counting unless the implementation preserves stable per-slot data.
+- **Identity distribution:** An attacker can avoid the new state penalty by limiting each identity to one reported flip or distributing flips across identities. Existing reward penalties still apply, but this proposal does not eliminate that strategy.
+- **Global failure fail-open:** If the adjusted states leave no identity `Newbie` or better, the existing global guard fails the ceremony and applies none of the penalties. Preserving this behavior protects the existing liveness safeguard but creates an edge case that implementations and activation analysis must cover.
+- **Network participation:** Killing or suspending identities can reduce the active validator set, including honest participants. Activation analysis must quantify the expected effects on validator and shard sizes.
+- **Determinism:** Nodes must use the same final qualifications, canonical slot-to-author mapping, transition point, and failure precedence. Using mutable reward maps, API fields, or CID-only author lookup can cause a consensus split.
+- **Penalty monotonicity:** The new transition must never improve an identity's base next state, and ordinary status side effects must remain intact.
 
 ## References
 
 - [Community discussion](https://github.com/idena-network/idena-docs/discussions/187)
-- [Historical analysis scripts and chart](https://github.com/ubiubi18/wrongwordsTRUE/tree/f1e2c36f74f087ceb6d0ecba62625a6b14515017)
+- [Exploratory historical scripts and sample artifacts](https://github.com/ubiubi18/wrongwordsTRUE/tree/f1e2c36f74f087ceb6d0ecba62625a6b14515017)
 - [Current `idena-go` ceremony implementation](https://github.com/idena-network/idena-go/tree/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony)
