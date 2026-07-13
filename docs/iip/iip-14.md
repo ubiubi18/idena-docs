@@ -1,87 +1,112 @@
 ---
 hide_title: true
 title: IIP-14
-sidebar_label: IIP-14 Repeated Misconduct Suspension
+sidebar_label: IIP-14 Repeated reported-flip penalty
 ---
 
-## IIP-14: Suspension of Identities who publish Multiple Bad Flips per Epoch
+## IIP-14: Repeated reported-flip penalty
 
-`Author`: ubiubi18  
-`Status`: Draft  
-`Type`: Standard  
-`Created`: 2025-08-05  
+`Author`: ubiubi18
+
+`Description`: Apply an identity-state penalty when two or more of an identity's flips are reported in one validation ceremony.
+
+`Status`: Draft
+
+`Type`: Standard
+
+`Created`: 2025-08-05
+
 `Discussion`: https://github.com/idena-network/idena-docs/discussions/187
 
 `Translations`:
 
 ## Abstract
 
-This proposal introduces a new protocol rule: **Any identity creating two or more reported (“bad”) flips within the same validation epoch will be suspended (if Verified/Human) or killed (if Newbie) after the ceremony.** Identities with only one reported flip in a session are not affected. This is to deter repeated low-effort or malicious flip creation, which undermines protocol security and user experience.
+This proposal adds an identity-state penalty for publishing at least two flips that receive the protocol's final `GradeReported` grade during the same validation ceremony. An identity whose pre-validation state is `Newbie` is killed. An identity whose pre-validation state is `Verified` or `Human` is suspended, unless the existing validation rules already kill it. A single reported flip does not trigger the new state transition, but all existing penalties continue to apply.
 
 ## Motivation
 
-The share of reported bad flips in Idena ceremonies has increased significantly over the past year, exceeding 16% of all flips per epoch. Data shows only 3-5% of reported flips are likely published by honest users (one-off, unintentional errors). The majority are produced by identities publishing multiple bad flips in one session - suggesting intent to abuse protocol rules. These actors retain identity and mining rights, harming the protocol and the experience of honest users. The current penalty (loss of session rewards) is insufficient and unfair, especially when compared to accidental single mistakes. More bad flips also increase the likelihood that Idena will fail to impress first-time users at first glance. Eliminating almost all bad flips will undoubtedly improve Idena’s reputation and open up new perspectives for the network.
+The protocol already withholds validation rewards from identities whose flips are reported, but that penalty may not deter identities that repeatedly publish reportable flips while retaining a validated identity. Repeated reported flips also consume reviewers' attention and reduce the quality of the validation experience.
 
-**Strengthening the penalty for repeated bad flips will discourage abuse, improve overall flip quality, and protect protocol security.**
+Exploratory analysis linked below indicates that, in the sampled epochs, a substantial share of reported flips was concentrated among identities with more than one reported flip in the same epoch. The analysis does not establish the author's intent and does not measure the false-positive rate. This proposal therefore uses the protocol's existing report qualification rather than introducing a subjective definition of flip quality, and limits the new penalty to repeated reports in one ceremony.
 
 ## Specification
 
-During each validation ceremony:
+### Definitions
 
-- **Count** the number of flips reported as bad (majority-reported) for every identity.
+- A **reported flip** is a distinct flip whose final qualification has `grade == GradeReported` under the active consensus rules. Reports discarded by the existing reporter filters do not count. A flip with `QualifiedByNone` status does not count unless its final grade is also `GradeReported`.
+- `reportedFlips(author)` is the number of reported flips created by `author` in the validation ceremony being finalized.
+- **Pre-validation state** is the identity state at the start of that ceremony, before ordinary validation transitions are calculated.
+- **Base next state** is the next identity state produced by all consensus rules that apply without this proposal.
 
-If an identity creates **two or more bad flips in the same session**:
+### State transition
 
-- If status is **Newbie**: Mark identity as **Killed** at validation end (full stake burnt, mining/voting rights revoked).
-- If status is **Verified or Human**: Mark identity as **Suspended** at validation end (identity loses mining/voting rights until next successful validation).
+For every identity, an implementation MUST first calculate the base next state. It MUST then apply the following rule using the identity's pre-validation state:
 
-Identities with only one reported flip in a session continue under existing penalty (loss of session rewards).
+| Reported flips | Pre-validation state | Final next state |
+| --- | --- | --- |
+| 0 or 1 | Any | Base next state |
+| 2 or more | `Newbie` | `Killed` |
+| 2 or more | `Verified` or `Human` | `Suspended`, unless the base next state is `Killed`; `Killed` MUST be preserved |
+| 2 or more | Any other state | Base next state |
 
-Penalties are applied **automatically after validation**.
+The new rule MUST NOT replace an outcome with a less severe state. In particular, a `Verified` identity that fails the ordinary validation rules and would be killed remains `Killed`; it is not changed to `Suspended`.
 
-**Protocol version:** 1.2.0 (Fork 14).  
-**Activation:** Requires hard fork.
+The final next state MUST be used consistently by all subsequent ceremony-finalization logic, including identity birthday calculation, invitation accounting, validation result construction, and reward processing.
+
+### Existing penalties
+
+This proposal does not change how a reported flip is qualified, how reporters are filtered or rewarded, or how a bad author affects validation and invitation rewards. Those existing rules apply in addition to the state transition above. An identity with exactly one reported flip receives no new state penalty.
+
+### Activation
+
+This rule changes consensus and MUST be disabled before activation. It MUST be enabled by a future consensus upgrade accepted through the existing hard-fork process. The implementation will assign the consensus version and activation window; this proposal does not reserve an application release number, consensus version, fork number, block, or epoch.
 
 ## Rationale
 
-Analysis of Idena validation data (see below) shows **most bad flips come from a small group of addresses** publishing multiple bad flips per epoch. At current network size, just ~40 to ~50 such identities per epoch can degrade protocol trust and user experience while suffering only minor penalties. In contrast, honest users making a single mistake are punished almost equally. This change introduces a strong deterrent: repeat offenders are immediately suspended or killed, protecting the network and rewarding high-quality flip creation.
+The threshold is an absolute count of two rather than a fraction of the author's required flips. This is simple to evaluate and targets repeated failures in one ceremony. A proportional rule such as two of three or three of five was considered in the discussion, but it would leave some identities unpenalized after publishing two reported flips and would add status-dependent thresholds.
 
-Alternative ideas (lower penalties, weighted reporting, penalties only for addresses with 3 reported flips per epoch) were considered in [community discussion](https://github.com/idena-network/idena-docs/discussions/187). But the data reflect a different reality and it seems as less strict rules would not prevent serial abuse or would unfairly punish honest users. **This approach targets only repeat offenders, minimizing collateral damage.**
+The rule uses the pre-validation state so that an identity cannot escape the intended result through an ordinary transition in the same ceremony. It also preserves an ordinary `Killed` result so the new rule can never reduce an existing penalty.
 
-There are good reasons to assume that identities with more than one reported flip per epoch do so intentionally, while single reported flips are most often honest mistakes - which are rare, as flip creation takes considerable effort.
+The term `GradeReported` ties the proposal to a value already calculated by consensus. Phrases such as "bad flip," "low effort," or "malicious flip" are motivations, not additional consensus criteria.
 
-## Data Illustration
+## Data illustration
 
-The chart below summarizes the historic share of reported bad flips in Idena ceremonies, breaking down the share attributed to addresses with multiple reports per epoch (red), single reports (blue), and the context of overall flip volumes:
+The following chart was generated from Idena API data for the sampled epochs. The red line is the share of all flips attributed to identities with multiple `wrongWords` flips in an epoch; the blue line is the share attributed to identities with exactly one. The bars show total and reported flip volumes.
 
-![Shares of Reported Bad Flips with Volume Context per Epoch](https://github.com/ubiubi18/wrongwordsTRUE/blob/main/output(2).png)
+![Shares of reported flips with volume context per epoch](https://raw.githubusercontent.com/ubiubi18/wrongwordsTRUE/f1e2c36f74f087ceb6d0ecba62625a6b14515017/output%282%29.png)
 
-*See repo for code and raw data: https://github.com/ubiubi18/wrongwordsTRUE/tree/main*
+The [analysis scripts and methodology](https://github.com/ubiubi18/wrongwordsTRUE/tree/f1e2c36f74f087ceb6d0ecba62625a6b14515017) are non-consensus research inputs. The repository does not include the complete raw dataset used for the chart, so the chart should not be treated as independently reproducible evidence or as part of the normative specification.
 
-- The **red line** shows the share of flips by addresses with multiple reports per epoch - the key target of this proposal.
-- The **blue line** represents the share by addresses with only one report (mostly honest mistakes).
-- **Gray bars**: total flips per epoch; **red bars**: flips reported as bad.
+## Backward compatibility
 
-## Backward Compatibility
+This change is not backward compatible. Once activated, an old node can calculate a different post-validation identity state and therefore a different state root. Nodes must upgrade before the activation window to remain on the canonical chain.
 
-This proposal **requires a hard fork** (protocol upgrade) at a specific block/epoch.  
-Nodes running old software will be unable to validate or mine after the fork block.
+## Reference implementation
 
-## Reference Implementation
+There is no production reference implementation at the time of publication.
 
-*requires help, early vibe-coded attempt, see: [Idena-Go.Hard.Fork.Implementation.Consensus.V13.Reported.Flips.Penalty(1).pdf](https://github.com/ubiubi18/wrongwordsTRUE/blob/main/Idena-Go.Hard.Fork.Implementation.Consensus.V13.Reported.Flips.Penalty(1).pdf)*
+An implementation is expected to:
 
-## Security Considerations
+1. Count final `GradeReported` qualifications per author while analyzing flips.
+2. Carry the repeated-report result into ceremony finalization without changing existing bad-author reward behavior.
+3. Apply the state transition after calculating the base next state and before any consumer records or uses the final next state.
+4. Gate the behavior behind the consensus upgrade that activates this proposal.
+5. Add integration-level tests for every table row above, including a `Verified` identity whose base next state is already `Killed`, exactly one reported flip, and a `QualifiedByNone` flip that is not `GradeReported`.
 
-- **Prevents protocol flooding:** Attackers can no longer retain identities while flooding the protocol with bad flips; quality is enforced.
-- **Reduces collusion risk:** Majority-reported flips make it statistically hard for honest users to be wrongly penalized.
-- **Minimizes accidental harm:** Almost all one-off mistakes result in only minor penalties; only serial abusers are suspended/killed.
-- **Attackers must restart from scratch:** Killed identities require re-invitation/validation, making repeated attacks costly and time-consuming.
-- **No increased risk for honest users:** Users with only one reported flip per session are not subject to new penalties.
-- **Network-size might shrink after implementation:** Some resistance from bad players to the IIP-implementation is to be expected; around 8% of all Idena identities are expected to be suspended under the IIP proposal.
+The relevant current node paths are [flip qualification](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/qualification.go#L382-L436), [author analysis](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/ceremony.go#L1340-L1412), and [identity-state finalization](https://github.com/idena-network/idena-go/blob/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony/ceremony.go#L1135-L1174).
+
+## Security considerations
+
+- **False positives:** `GradeReported` is a committee-derived result, not proof of malicious intent. Honest authors can receive two reported grades and would be penalized. Before activation, reviewers should measure the historical false-positive rate and publish reproducible data.
+- **Coordinated reporting:** An attacker able to influence enough of a flip's report committee may cause the flip to receive `GradeReported`. This proposal increases the consequence of such influence but does not change the existing report threshold or committee selection.
+- **Evasion:** An attacker can avoid the new state penalty by limiting each identity to one reported flip per ceremony or distributing flips across identities. Existing reward penalties still apply, but this proposal does not eliminate that strategy.
+- **Network participation:** Suspending or killing repeat offenders can reduce the active validator set, including honest participants caught by false positives. Activation analysis should quantify the expected effect on validator and shard sizes.
+- **Determinism:** Nodes must count the same final flip qualifications and apply the transition at the same point in ceremony finalization. Counting raw report transactions, API fields, or reports discarded by existing filters would be consensus-breaking.
+- **Penalty monotonicity:** The new transition must never turn an existing `Killed` outcome into `Suspended` or otherwise improve an identity's base next state.
 
 ## References
 
-- [Discussion: IIP-14 — Suspend identities with multiple bad flips per epoch](https://github.com/idena-network/idena-docs/discussions/187)
-- [Historical flip report dataset and scripts to collect data from public api](https://github.com/ubiubi18/wrongwordsTRUE/tree/main)
-
+- [Community discussion](https://github.com/idena-network/idena-docs/discussions/187)
+- [Historical analysis scripts and chart](https://github.com/ubiubi18/wrongwordsTRUE/tree/f1e2c36f74f087ceb6d0ecba62625a6b14515017)
+- [Current `idena-go` ceremony implementation](https://github.com/idena-network/idena-go/tree/938be81dbdeff85f888f4337060a8ebabb12e5b5/core/ceremony)
