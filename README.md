@@ -1,5 +1,11 @@
 # Website
 
+### Reliability and consensus
+
+Please treat the software in this repository as potentially unreliable. To the best of my knowledge, concerns relevant to Idena’s consensus security remain unresolved upstream.
+
+As long as the chain continues to operate under its current rules, I will not change those rules on my own. I welcome working with upstream maintainers, node operators, and the wider Idena community to review any proposed consensus change and coordinate its adoption.
+
 This website is built using [Docusaurus 2](https://docusaurus.io/), a modern static website generator.
 
 ### Installation
